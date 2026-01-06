@@ -1,0 +1,35 @@
+#define PPICLF_LPART 80000
+#define PPICLF_LRS 6
+#define PPICLF_LRP 19
+#define PPICLF_LEE 1500
+#define PPICLF_LEX 4
+#define PPICLF_LEY 4
+#define PPICLF_LEZ 4
+#define PPICLF_LRP_INT 3
+
+#define PPICLF_JX  1
+#define PPICLF_JY  2
+#define PPICLF_JZ  3
+#define PPICLF_JVX 4
+#define PPICLF_JVY 5
+#define PPICLF_JVZ 6
+
+#define PPICLF_R_JRHOP 1
+#define PPICLF_R_JR0TAB 2
+#define PPICLF_R_JVOLP 3
+#define PPICLF_R_JWEB 4
+#define PPICLF_R_JUX 5
+#define PPICLF_R_JUY 6
+#define PPICLF_R_JUZ 7
+#define PPICLF_R_JYTAB 8
+#define PPICLF_R_JYDOTTAB 9
+#define PPICLF_R_JSIGMA 10
+#define PPICLF_R_JYCTAB 11
+#define PPICLF_R_JFTAB 12
+#define PPICLF_R_JTD 13
+#define PPICLF_R_JOMEGA 14
+#define PPICLF_R_JDMAJ 15
+#define PPICLF_R_JRR 16
+#define PPICLF_R_JUID 17
+#define PPICLF_R_JSPL 18
+#define PPICLF_R_JPARENT 19
