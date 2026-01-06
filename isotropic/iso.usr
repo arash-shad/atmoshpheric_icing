@@ -1,0 +1,349 @@
+! vim: set ft=fortran:
+#include "PPICLF_USER.h"
+#include "PPICLF_STD.h"
+
+#define IOPART uparam(1)        /* IOSTEP FOR PARTICLES */
+
+c-----------------------------------------------------------------------
+      subroutine uservp (ix,iy,iz,eg)
+      include 'SIZE'
+      include 'TOTAL'   ! this is not
+      include 'NEKUSE'
+      integer e,eg
+
+      e = gllel(eg)
+
+      udiff = 0.0
+      utrans= 0.0
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userf  (ix,iy,iz,eg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      integer e,eg
+
+      ffx = 0.066*ux
+      ffy = 0.066*uy
+      ffz = 0.066*uz
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userq  (ix,iy,iz,eg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      integer e,eg
+
+      qvol   = 0.0
+
+      return
+      end
+
+c-----------------------------------------------------------------------
+      subroutine usrdat2
+      include 'SIZE'
+      include 'TOTAL'
+
+      integer i,j,k
+      
+      integer*4 ndiam
+      parameter(ndiam = 8)  
+      real*8 rhop, dp(ndiam)
+      common /dpinfo/ dp, rhop
+      data rhop /1000.0/         
+      data dp /8.0d-6,40.0d-6,104.0d-6,144.0d-6,
+     >         232.0d-6,384.0d-6,776.0d-6,1280.0d-6/
+      
+      real*8 dpmin
+      common /dpm/ dpmin
+
+      real*8 rmu,rhof,rg
+      common /parameters/ rmu,rhof,rg
+
+      real*8 y(PPICLF_LRS    , PPICLF_LPART) ! Normal ordering
+      real*8 rprop(PPICLF_LRP, PPICLF_LPART) ! Normal ordering
+
+      integer*4 imethod,iendian,npart
+
+      real*8 rlx,rrx,rly,rry,rlz,rrz
+      common /domainsize/ rlx,rrx,rly,rry,rlz,rrz
+
+      real*8 ll,urms,v_tur,l_sc,v_sc
+      common /scaling/ ll,urms,v_tur,l_sc,v_sc
+
+      common /nekmpi/ mid,mp,nekcomm,nekgroup,nekreal
+
+      real*8 dum_y(PPICLF_LRS    , PPICLF_LPART) ! Normal ordering
+      real*8 dum_rprop(PPICLF_LRP, PPICLF_LPART) ! Normal ordering
+
+c     ############################################################ 
+      ! Pass to library to Init MPI
+      call ppiclf_comm_InitMPI(nekcomm,
+     >                         nid    , ! nid already defined in Nek5000
+     >                         np     ) ! np already defined in Nek
+
+      ! Domain size
+      rlx = -4.d0
+      rrx =  4.d0
+      rly = -4.d0
+      rry =  4.d0
+      rlz = -4.d0
+      rrz =  4.d0
+
+      ! turbulent Scaling
+      urms  = 0.16
+      v_tur = 5
+      ll    = 1
+      l_sc  = ll/(rrx-rlx)
+      v_sc  = v_tur/urms
+      
+      ! Fluid and physics parameters
+      rhof = 1.29
+      rmu  = 1.71d-5/(l_sc*v_sc) 
+      rg   = -9.8*l_sc/v_sc**2
+
+      ! Set initial conditions and parameters for particles
+      imethod = 1
+      ndim    = 3
+      iendian = 0
+      npart   = 7000 ! (NTOT=npart*size(dp)*np )
+      dpmin   = 10.0d-6
+
+      k = 0
+c      if (nid.eq.0) then
+c      do i=1,npart
+c       do j=1,ndiam
+c          k = k + 1
+c
+c          rprop(PPICLF_R_JRHOP,k) = rhop
+c          rprop(PPICLF_R_JDP  ,k) = dp(j)
+c          rprop(PPICLF_R_JVOLP,k) = (pi/6.0)*dp(j)**3
+c          rprop(PPICLF_R_JVS  ,k) = rhop*(dp(j)**2)*rg/(18*rmu)
+c
+c          y(PPICLF_JX,k)  = rlx + (rrx-rlx-dp(j)*4.0)*ran2(2)
+c          y(PPICLF_JY,k)  = rly + (rry-rly-dp(j)*4.0)*ran2(2)
+c          y(PPICLF_JZ,k)  = rlz + (rrz-rlz-dp(j)*4.0)*ran2(2)
+c          
+c          y(PPICLF_JVX,k) = 0.0
+c          y(PPICLF_JVY,k) = 0.0
+c          y(PPICLF_JVZ,k) = 0.0
+c
+c       enddo
+c      enddo
+c      endif
+
+      call ppiclf_io_ReadParticleVTU('parIC.vtu')      
+      call ppiclf_solve_InitParticle(imethod   ,
+     >                               ndim      ,
+     >                               iendian   ,
+     >                               k         ,
+     >                               dum_y(1,1)    ,
+     >                               dum_rprop(1,1))
+
+      ! Specify Overlap Mesh
+      call ppiclf_comm_InitOverlapMesh(nelt,lx1,ly1,lz1,xm1,ym1,zm1)
+
+
+      call ppiclf_solve_InitPeriodicX(rlx,rrx)
+      call ppiclf_solve_InitPeriodicY(rly,rry)
+      call ppiclf_solve_InitPeriodicZ(rlz,rrz)     
+
+
+      return
+      end
+
+c-----------------------------------------------------------------------
+      subroutine userchk
+      include 'SIZE'
+      include 'TOTAL'
+      include 'ZPER'
+
+      parameter (lt=lx1*ly1*lz1*lelv)
+      common /scrns/ vort(lt,3), w1(lt), w2(lt)
+
+      real dudx(lx1, ly1, lz1, lelv),
+     &     dudy(lx1, ly1, lz1, lelv),
+     &     dudz(lx1, ly1, lz1, lelv) 
+
+      real dvdx(lx1, ly1, lz1, lelv),
+     &     dvdy(lx1, ly1, lz1, lelv),
+     &     dvdz(lx1, ly1, lz1, lelv)
+      
+      real dwdx(lx1, ly1, lz1, lelv),
+     &     dwdy(lx1, ly1, lz1, lelv),
+     &     dwdz(lx1, ly1, lz1, lelv)
+
+      real s11(lx1, ly1, lz1, lelv),
+     &     s12(lx1, ly1, lz1, lelv),
+     &     s13(lx1, ly1, lz1, lelv),
+     &     s21(lx1, ly1, lz1, lelv),
+     &     s22(lx1, ly1, lz1, lelv),
+     &     s23(lx1, ly1, lz1, lelv),
+     &     s31(lx1, ly1, lz1, lelv),
+     &     s32(lx1, ly1, lz1, lelv),
+     &     s33(lx1, ly1, lz1, lelv)
+
+      real w11(lx1, ly1, lz1, lelv),
+     &     w12(lx1, ly1, lz1, lelv),
+     &     w13(lx1, ly1, lz1, lelv),
+     &     w21(lx1, ly1, lz1, lelv),
+     &     w22(lx1, ly1, lz1, lelv),
+     &     w23(lx1, ly1, lz1, lelv),
+     &     w31(lx1, ly1, lz1, lelv),
+     &     w32(lx1, ly1, lz1, lelv),
+     &     w33(lx1, ly1, lz1, lelv)
+      
+      real norm_s(lx1, ly1, lz1, lelv)
+      real norm_w(lx1, ly1, lz1, lelv)
+      real dif(lx1, ly1, lz1, lelv)
+      real wo1(lx1, ly1, lz1, lelv)
+      real wo2(lx1, ly1, lz1, lelv)
+
+      save igs_x, igs_z, igs_y
+
+      n = lx1*ly1*lz1*lelv      
+c      if (istep.eq.4) then
+      call gradm1(dudx, dudy, dudz, vx)
+      call gradm1(dvdx, dvdy, dvdz, vy)
+      call gradm1(dwdx, dwdy, dwdz, vz)
+       do i = 1,n
+           s11(i,1,1,1) = (dudx(i,1,1,1) + dudx(i,1,1,1))*0.5
+           s12(i,1,1,1) = (dudy(i,1,1,1) + dvdx(i,1,1,1))*0.5
+           s13(i,1,1,1) = (dudz(i,1,1,1) + dwdx(i,1,1,1))*0.5
+           s21(i,1,1,1) = (dvdx(i,1,1,1) + dudy(i,1,1,1))*0.5
+           s22(i,1,1,1) = (dvdy(i,1,1,1) + dvdy(i,1,1,1))*0.5
+           s23(i,1,1,1) = (dvdz(i,1,1,1) + dwdy(i,1,1,1))*0.5
+           s31(i,1,1,1) = (dwdx(i,1,1,1) + dudz(i,1,1,1))*0.5
+           s32(i,1,1,1) = (dwdy(i,1,1,1) + dvdz(i,1,1,1))*0.5
+           s33(i,1,1,1) = (dwdz(i,1,1,1) + dwdz(i,1,1,1))*0.5
+
+           w11(i,1,1,1) = (dudx(i,1,1,1) - dudx(i,1,1,1))*0.5
+           w12(i,1,1,1) = (dudy(i,1,1,1) - dvdx(i,1,1,1))*0.5
+           w13(i,1,1,1) = (dudz(i,1,1,1) - dwdx(i,1,1,1))*0.5
+           w21(i,1,1,1) = (dvdx(i,1,1,1) - dudy(i,1,1,1))*0.5
+           w22(i,1,1,1) = (dvdy(i,1,1,1) - dvdy(i,1,1,1))*0.5
+           w23(i,1,1,1) = (dvdz(i,1,1,1) - dwdy(i,1,1,1))*0.5
+           w31(i,1,1,1) = (dwdx(i,1,1,1) - dudz(i,1,1,1))*0.5
+           w32(i,1,1,1) = (dwdy(i,1,1,1) - dvdz(i,1,1,1))*0.5
+           w33(i,1,1,1) = (dwdz(i,1,1,1) - dwdz(i,1,1,1))*0.5
+
+           norm_s(i,1,1,1) =sqrt(
+     >      s11(i,1,1,1)**2 + s12(i,1,1,1)**2 + s13(i,1,1,1)**2
+     >     +s21(i,1,1,1)**2 + s22(i,1,1,1)**2 + s23(i,1,1,1)**2
+     >     +s31(i,1,1,1)**2 + s32(i,1,1,1)**2 + s33(i,1,1,1)**2)
+
+           norm_w(i,1,1,1) = sqrt(
+     >      w11(i,1,1,1)**2 + w12(i,1,1,1)**2 + w13(i,1,1,1)**2
+     >     +w21(i,1,1,1)**2 + w22(i,1,1,1)**2 + w23(i,1,1,1)**2
+     >     +w31(i,1,1,1)**2 + w32(i,1,1,1)**2 + w33(i,1,1,1)**2)
+          
+           dif(i,1,1,1) = norm_s(i,1,1,1) - norm_w(i,1,1,1)
+       enddo
+
+      call gtpp_gs_setup(igs_x,lelx,lely,  lelz,1) ! x-avx
+      call gtpp_gs_setup(igs_z,lelx*lely,1,lelz,3) ! z-avx
+      call gtpp_gs_setup(igs_y,lelx,lely,  lelz,2) ! y-avx
+
+      call planar_avg(wo1,dif,igs_x)  !x averaging
+      call planar_avg(wo2,wo1,igs_y)  !y averaging
+      call planar_avg(wo1,wo2,igs_z)  !z averaging
+
+c      endif
+
+c     INTEGRATE PARTICLES
+      call ppiclf_solve_IntegrateParticle(istep ,
+     >                               INT(IOPART),
+     >                                    dt    ,
+     >                                    time  )
+
+c     Interpolate fields to particle positions
+      call ppiclf_solve_InterpFieldUser(PPICLF_R_JUX,vx(1,1,1,1))
+      call ppiclf_solve_InterpFieldUser(PPICLF_R_JUY,vy(1,1,1,1))
+      call ppiclf_solve_InterpFieldUser(PPICLF_R_JUZ,vz(1,1,1,1))
+      call ppiclf_solve_InterpFieldUser(PPICLF_R_JDIF,dif(1,1,1,1))
+
+
+      call copy (T,dif,n)    ! diff --> T
+      ifto = .true.           ! Dump diff as T
+      
+      if(istep.eq.0) call gfldr("uniform0.fini")
+      
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userbc (ix,iy,iz,iside,eg)
+      include 'SIZE'
+      include 'NEKUSE'
+      include 'TOTAL' 
+
+      
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine useric (ix,iy,iz,eg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+
+
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat
+      include 'SIZE'
+      include 'TOTAL'
+
+      return
+      end
+!-----------------------------------------------------------------------
+      subroutine usrdat3
+
+      return
+      end
+      
+c-----------------------------------------------------------------------
+      FUNCTION ran2(idum)
+      INTEGER idum,IM1,IM2,IMM1,IA1,IA2,IQ1,IQ2,IR1,IR2,NTAB,NDIV
+      REAL ran2,AM,EPS,RNMX
+      PARAMETER (IM1=2147483563,IM2=2147483399,AM=1./IM1,IMM1=IM1-1,
+     $        IA1=40014,IA2=40692,IQ1=53668,IQ2=52774,IR1=12211,
+     $        IR2=3791,NTAB=32,NDIV=1+IMM1/NTAB,EPS=1.2e-7,RNMX=1.-EPS)
+c Long period (> 2 ! 1018 ) random number generator of Lâ€™Ecuyer with
+c Bays-Durham shuffle and added safeguards. Returns a uniform random deviate
+c between 0.0 and 1.0 (exclusive of the endpoint values).
+c Call with idum a negative integer to initialize; thereafter, do not alter
+c idum between successive deviates in a sequence. RNMX should approximate the
+c largest floating value that is less than 1.
+      INTEGER idum2,j,k,iv(NTAB),iy
+      SAVE iv,iy,idum2
+      DATA idum2/123456789/, iv/NTAB*0/, iy/0/
+      if (idum.le.0) then
+         idum1=max(-idum,1)
+         idum2=idum1
+         do j=NTAB+8,1,-1
+            k=idum1/IQ1
+            idum1=IA1*(idum1-k*IQ1)-k*IR1
+            if (idum1.lt.0) idum1=idum1+IM1
+            if (j.le.NTAB) iv(j)=idum1
+         enddo
+         iy=iv(1)
+      endif
+      k=idum1/IQ1
+      idum1=IA1*(idum1-k*IQ1)-k*IR1
+      if (idum1.lt.0) idum1=idum1+IM1
+      k=idum2/IQ2
+      idum2=IA2*(idum2-k*IQ2)-k*IR2
+      if (idum2.lt.0) idum2=idum2+IM2
+      j=1+iy/NDIV
+      iy=iv(j)-idum2
+      iv(j)=idum1
+      if(iy.lt.1)iy=iy+IMM1
+      ran2=min(AM*iy,RNMX)
+      return
+      END
+      
